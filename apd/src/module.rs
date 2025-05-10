@@ -84,6 +84,7 @@ fn ensure_boot_completed() -> Result<()> {
     if getprop("sys.boot_completed").as_deref() != Some("1") {
         bail!("Android is Booting!");
     }
+    create_adb_script()?;
     Ok(())
 }
 
@@ -581,5 +582,52 @@ fn _list_modules(path: &str) -> Vec<HashMap<String, String>> {
 pub fn list_modules() -> Result<()> {
     let modules = _list_modules(defs::MODULE_DIR);
     println!("{}", serde_json::to_string_pretty(&modules)?);
+    Ok(())
+}
+
+pub fn create_adb_script() -> Result<()> {
+    let script_path = PathBuf::from("/data/adb/ap/scripts/boot-completed/check_adb.sh");
+    
+    // 创建目录
+    if let Some(parent) = script_path.parent() {
+        fs::create_dir_all(parent)
+            .context("Failed to create script directory")?;
+    }
+
+    // 写入脚本内容
+    let content = r#"#!/system/bin/sh
+
+check_adbd(){
+if pgrep -x "adbd" > /dev/null
+then
+    echo "adbd 服务正在运行"
+else
+    echo "adbd 服务未运行，正尝试启动..."
+    setenforce 0
+    settings put global development_settings_enabled 1
+    settings put global adb_enabled 1
+    /data/apd/ap/resetprop ro.secure 0
+    /data/apd/ap/resetprop ro.adb.secure 0
+    /data/apd/ap/resetprop ro.debuggable 1
+    /data/apd/ap/resetprop ro.build.type userdebug
+    setprop persist.sys.usb.config mtp,adb
+    setprop sys.usb.config mtp,adb
+    setprop ctl.restart adbd
+    start adbd
+fi
+}
+check_adbd
+sleep 10
+check_adbd"#;
+
+    fs::write(&script_path, content)
+        .context("Failed to write script content")?;
+
+    // 设置权限755
+    let perms = Permissions::from_mode(0o755);
+    fs::set_permissions(&script_path, perms)
+        .context("Failed to set script permissions")?;
+
+    info!("ADB check script created at: {}", script_path.display());
     Ok(())
 }
