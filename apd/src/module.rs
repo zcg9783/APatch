@@ -7,6 +7,7 @@ use is_executable::is_executable;
 use java_properties::PropertiesIter;
 use log::{info, warn};
 use std::fs::Permissions;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::{
     collections::HashMap,
