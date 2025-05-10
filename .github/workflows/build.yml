@@ -81,6 +81,7 @@ jobs:
           sed -i 's/org.gradle.configuration-cache=true//g' gradle.properties
           ./gradlew clean assembleRelease
           echo "BUILD_TOOL_VERSION=$(ls /usr/local/lib/android/sdk/build-tools/ | tail -n 1)" >> $GITHUB_ENV
+          echo "UNSIGNED_APK=$(find app/build/outputs/apk/release -name '*.apk' | head -n 1)" >> $GITHUB_ENV
 
       - name: Sign Release
         env:
@@ -97,13 +98,12 @@ jobs:
           keyPassword: ${{ secrets.KEY_PASSWORD }}
 
       - name: Upload build artifact
-        env:
-          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-        if: ${{ env.SIGNING_KEY != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: APatch
-          path: ${{steps.sign_app.outputs.signedReleaseFile}}
+          path: |
+            ${{ steps.sign_app.outputs.signedReleaseFile }}
+            ${{ env.UNSIGNED_APK }}
 
       - name: Post to channel
         if: ${{github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.ref_type != 'tag'}}
@@ -114,24 +114,27 @@ jobs:
           COMMIT_ID: ${{ github.event.head_commit.id }}
         run: |
           if [ ! -z "${{ secrets.BOT_TOKEN }}" ]; then
-            OUTPUT="app/build/outputs/apk/release"
-            export Release=$(find $OUTPUT -name "*.apk")
+            if [ -n "${{ steps.sign_app.outputs.signedReleaseFile }}" ]; then
+              APK_PATH="${{ steps.sign_app.outputs.signedReleaseFile }}"
+            else
+              APK_PATH="${{ env.UNSIGNED_APK }}"
+            fi
             URL=$(python3 .github/scripts/telegram_url.py -1002058433411)
-            curl -v "$URL" -F Release=@${{ steps.sign_app.outputs.signedReleaseFile }}
+            curl -v "$URL" -F Release=@$APK_PATH
             URL=$(python3 .github/scripts/telegram_url.py -1001910818234)
-            curl -v "$URL" -F Release=@${{ steps.sign_app.outputs.signedReleaseFile }}
+            curl -v "$URL" -F Release=@$APK_PATH
           fi
 
       - name: Release apk
-        env:
-          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-        if: ${{ env.SIGNING_KEY != '' && github.ref_type == 'tag' }}
+        if: ${{ github.ref_type == 'tag' }}
         continue-on-error: true
         uses: ncipollo/release-action@v1
         with:
           token: ${{ github.token }}
           tag: ${{ steps.parse_version.outputs.VERSION }}
-          artifacts: ${{steps.sign_app.outputs.signedReleaseFile}}
+          artifacts: |
+            ${{ steps.sign_app.outputs.signedReleaseFile }}
+            ${{ env.UNSIGNED_APK }}
           generateReleaseNotes: true
           makeLatest: true
           replacesArtifacts: true
