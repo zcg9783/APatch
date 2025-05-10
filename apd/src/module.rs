@@ -6,6 +6,8 @@ use const_format::concatcp;
 use is_executable::is_executable;
 use java_properties::PropertiesIter;
 use log::{info, warn};
+use std::fs::Permissions;
+use std::os::unix::fs::PermissionsExt;
 use std::{
     collections::HashMap,
     env::var as env_var,
