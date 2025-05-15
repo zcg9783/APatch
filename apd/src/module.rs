@@ -87,7 +87,6 @@ fn ensure_boot_completed() -> Result<()> {
     if getprop("sys.boot_completed").as_deref() != Some("1") {
         bail!("Android is Booting!");
     }
-    create_adb_script()?;
     Ok(())
 }
 
