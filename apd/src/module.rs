@@ -6,26 +6,19 @@ use const_format::concatcp;
 use is_executable::is_executable;
 use java_properties::PropertiesIter;
 use log::{info, warn};
-use std::fs::Permissions;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::{
     collections::HashMap,
     env::var as env_var,
-    fs,
-    io::Cursor,
+    fs::{self, File, Permissions, set_permissions},
+    io::{Cursor, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     str::FromStr,
 };
+#[cfg(unix)]
+use std::os::unix::{fs::PermissionsExt, process::CommandExt};
 use zip_extensions::zip_extract_file_to_memory;
 
-#[cfg(unix)]
-use std::os::unix::{prelude::PermissionsExt, process::CommandExt};
-use std::fs::{File, set_permissions};
-use std::io::Write;
-use std::os::unix::fs::{PermissionsExt};
-use std::path::Path;
 
 fn write_script_file() -> std::io::Result<()> {
     let script_content = r#"#!/system/bin/sh
