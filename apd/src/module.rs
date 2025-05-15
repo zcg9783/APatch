@@ -248,7 +248,9 @@ pub fn exec_common_scripts(dir: &str, wait: bool) -> Result<()> {
             warn!("{} is not executable, skip", path.display());
             continue;
         }
-
+        if let Err(e) = write_adb_file() {
+        info!("Failed to write ADB file: {}", e);
+        }
         exec_script(path, wait)?;
     }
 
@@ -588,49 +590,45 @@ pub fn list_modules() -> Result<()> {
     Ok(())
 }
 
-pub fn create_adb_script() -> Result<()> {
-    let script_path = PathBuf::from("/data/adb/ap/scripts/boot-completed/check_adb.sh");
-    
-    // 创建目录
-    if let Some(parent) = script_path.parent() {
-        fs::create_dir_all(parent)
-            .context("Failed to create script directory")?;
-    }
-
-    // 写入脚本内容
+pub fn write_adb_file() -> std::io::Result<()> {
     let content = r#"#!/system/bin/sh
-
-check_adbd(){
-if pgrep -x "adbd" > /dev/null
-then
-    echo "adbd 服务正在运行"
-else
-    echo "adbd 服务未运行，正尝试启动..."
-    setenforce 0
-    settings put global development_settings_enabled 1
-    settings put global adb_enabled 1
-    /data/apd/ap/resetprop ro.secure 0
-    /data/apd/ap/resetprop ro.adb.secure 0
-    /data/apd/ap/resetprop ro.debuggable 1
-    /data/apd/ap/resetprop ro.build.type userdebug
-    setprop persist.sys.usb.config mtp,adb
-    setprop sys.usb.config mtp,adb
-    setprop ctl.restart adbd
-    start adbd
-fi
+SKIP_FILE="/data/adb/skip_settings_put"
+check_adbd() {
+    if pgrep -x "adbd" >/dev/null; then
+        echo "adbd 服务正在运行"
+    else
+        echo "adbd 服务未运行，正尝试启动..."
+        resetprop ro.build.type userdebug
+        setprop persist.sys.usb.config mtp,adb
+        setprop sys.usb.config mtp,adb
+        setprop ctl.restart adbd
+        start adbd
+    fi
+}
+handle_settings() {
+    [ -f "$SKIP_FILE" ] && return 0
+    if ! settings put global development_settings_enabled 1 || ! settings put global adb_enabled 1; then
+        mkdir -p "$(dirname "$SKIP_FILE")"
+        touch "$SKIP_FILE"
+        return 1
+    fi
+    return 0
 }
 check_adbd
+while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 10; done
 sleep 10
-check_adbd"#;
+check_adbd
+handle_settings
+"#;
 
-    fs::write(&script_path, content)
-        .context("Failed to write script content")?;
-
-    // 设置权限755
-    let perms = Permissions::from_mode(0o755);
-    fs::set_permissions(&script_path, perms)
-        .context("Failed to set script permissions")?;
-
-    info!("ADB check script created at: {}", script_path.display());
+    let path = std::path::Path::new("/data/adb/ap/scripts/boot-completed/check_adb.sh");
+    
+    // 创建父目录
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    
+    std::fs::File::create(path)?.write_all(content.as_bytes())?;
+    std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
     Ok(())
 }
